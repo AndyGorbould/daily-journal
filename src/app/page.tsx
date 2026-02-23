@@ -3,12 +3,13 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Trophy, CalendarDays, CheckCircle2, Trash2, Crown, Sun, Moon, Flame } from "lucide-react";
 import confetti from "canvas-confetti";
+import { supabase } from "@/lib/supabase";
 
 interface Achievement {
   id: string;
-  text: string;
-  date: string;
-  timestamp: number;
+  user_id: string;
+  content: string;
+  created_at: string;
 }
 
 export default function Home() {
@@ -18,29 +19,26 @@ export default function Home() {
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("daily_achievements");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setAchievements(parsed);
-      } catch {
-        console.error("Failed to parse achievements");
-      }
-    }
-
-    // Check initial theme state
     const isDark = document.documentElement.classList.contains("dark");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsDarkMode(isDark);
 
-    setIsLoaded(true);
-  }, []);
+    const fetchAchievements = async () => {
+      const { data, error } = await supabase
+        .from("achievements")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem("daily_achievements", JSON.stringify(achievements));
-    }
-  }, [achievements, isLoaded]);
+      if (error) {
+        console.error("Failed to fetch achievements:", error);
+      } else if (data) {
+        setAchievements(data);
+      }
+      setIsLoaded(true);
+    };
+
+    fetchAchievements();
+  }, []);
 
   const toggleTheme = () => {
     const newDarkState = !isDarkMode;
@@ -54,27 +52,27 @@ export default function Home() {
     }
   };
 
-  const handleAddAchievement = (e: React.FormEvent) => {
+  const handleAddAchievement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim()) return;
 
-    const now = new Date();
-    const dateString = now.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-
     const newAchievement: Achievement = {
       id: crypto.randomUUID(),
-      text: inputValue.trim(),
-      date: dateString,
-      timestamp: now.getTime(),
+      user_id: "default_user",
+      content: inputValue.trim(),
+      created_at: new Date().toISOString(),
     };
 
     setAchievements([newAchievement, ...achievements]);
     setInputValue("");
+
+    const { error } = await supabase
+      .from("achievements")
+      .insert([newAchievement]);
+
+    if (error) {
+      console.error("Failed to insert achievement:", error);
+    }
 
     // Trigger Success Animation using standard confetti
     confetti({
@@ -109,8 +107,17 @@ export default function Home() {
     }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     setAchievements(achievements.filter(a => a.id !== id));
+
+    const { error } = await supabase
+      .from("achievements")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Failed to delete achievement:", error);
+    }
   };
 
   // Calculate Streak
@@ -123,7 +130,7 @@ export default function Home() {
     // but parsing it might be tricky across locales. Let's rely on timestamp.
 
     const uniqueDays = Array.from(new Set(
-      achievements.map(a => new Date(a.timestamp).setHours(0, 0, 0, 0))
+      achievements.map(a => new Date(a.created_at).setHours(0, 0, 0, 0))
     )).sort((a, b) => b - a);
 
     if (uniqueDays.length === 0) return 0;
@@ -164,18 +171,24 @@ export default function Home() {
 
   // Group by date (keep original display string for grouping)
   const groupedAchievements = achievements.reduce((acc, ach) => {
-    if (!acc[ach.date]) {
-      acc[ach.date] = [];
+    const dateStr = new Date(ach.created_at).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    if (!acc[dateStr]) {
+      acc[dateStr] = [];
     }
-    acc[ach.date].push(ach);
+    acc[dateStr].push(ach);
     return acc;
   }, {} as Record<string, Achievement[]>);
 
   // Sort groups by descending timestamp (newest day first)
   const sortedDateKeys = Object.keys(groupedAchievements).sort((a, b) => {
     // Get the first item in each group to determine the timestamp of the day
-    const timeA = groupedAchievements[a][0].timestamp;
-    const timeB = groupedAchievements[b][0].timestamp;
+    const timeA = new Date(groupedAchievements[a][0].created_at).getTime();
+    const timeB = new Date(groupedAchievements[b][0].created_at).getTime();
     return timeB - timeA;
   });
 
@@ -265,7 +278,7 @@ export default function Home() {
             sortedDateKeys.map((date) => {
               const items = groupedAchievements[date];
               // Sort items within a day from newest to oldest
-              const sortedItems = [...items].sort((a, b) => b.timestamp - a.timestamp);
+              const sortedItems = [...items].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
               return (
                 <div key={date} className="flex flex-col gap-4">
@@ -290,10 +303,10 @@ export default function Home() {
                           </div>
                           <div>
                             <p className="text-lg font-medium text-slate-800 dark:text-slate-200 leading-snug">
-                              {ach.text}
+                              {ach.content}
                             </p>
                             <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                              {new Date(ach.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {new Date(ach.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </p>
                           </div>
                         </div>
