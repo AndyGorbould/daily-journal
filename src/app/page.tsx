@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Plus, Trophy, CalendarDays, CheckCircle2, Trash2, Crown } from "lucide-react";
+import { Plus, Trophy, CalendarDays, CheckCircle2, Trash2, Crown, Sun, Moon, Flame } from "lucide-react";
 import confetti from "canvas-confetti";
 
 interface Achievement {
@@ -15,6 +15,7 @@ export default function Home() {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("daily_achievements");
@@ -27,6 +28,11 @@ export default function Home() {
         console.error("Failed to parse achievements");
       }
     }
+
+    // Check initial theme state
+    const isDark = document.documentElement.classList.contains("dark");
+    setIsDarkMode(isDark);
+
     setIsLoaded(true);
   }, []);
 
@@ -35,6 +41,18 @@ export default function Home() {
       localStorage.setItem("daily_achievements", JSON.stringify(achievements));
     }
   }, [achievements, isLoaded]);
+
+  const toggleTheme = () => {
+    const newDarkState = !isDarkMode;
+    setIsDarkMode(newDarkState);
+    if (newDarkState) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  };
 
   const handleAddAchievement = (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +113,56 @@ export default function Home() {
     setAchievements(achievements.filter(a => a.id !== id));
   };
 
-  // Group by date
+  // Calculate Streak
+  const calculateStreak = () => {
+    if (achievements.length === 0) return 0;
+
+    // Get unique dates sorted descending (newest first)
+    // We only care about the YYYY-MM-DD local part to ignore time differences.
+    // The previous 'date' string (e.g. 'Tue, Feb 23, 2026') is fine for display, 
+    // but parsing it might be tricky across locales. Let's rely on timestamp.
+
+    const uniqueDays = Array.from(new Set(
+      achievements.map(a => new Date(a.timestamp).setHours(0, 0, 0, 0))
+    )).sort((a, b) => b - a);
+
+    if (uniqueDays.length === 0) return 0;
+
+    const todayStart = new Date().setHours(0, 0, 0, 0);
+    const msInDay = 24 * 60 * 60 * 1000;
+
+    let streak = 0;
+    let expectedDay = todayStart;
+
+    // It's valid to have not posted *today* yet, but still have a streak if we posted *yesterday*.
+    if (uniqueDays[0] === todayStart) {
+      // Current streak active today
+    } else if (uniqueDays[0] === todayStart - msInDay) {
+      // Current streak active as of yesterday
+      expectedDay = todayStart - msInDay;
+    } else {
+      // Streak broken
+      return 0;
+    }
+
+    for (let i = 0; i < uniqueDays.length; i++) {
+      // Javascript Date diff rounding can sometimes be off by an hour due to DST changes, 
+      // so we check if the difference is roughly one day.
+      const diffDays = Math.round((expectedDay - uniqueDays[i]) / msInDay);
+      if (diffDays === 0) {
+        streak++;
+        expectedDay -= msInDay;
+      } else {
+        break; // Gap found
+      }
+    }
+
+    return streak;
+  };
+
+  const streakCount = calculateStreak();
+
+  // Group by date (keep original display string for grouping)
   const groupedAchievements = achievements.reduce((acc, ach) => {
     if (!acc[ach.date]) {
       acc[ach.date] = [];
@@ -103,6 +170,14 @@ export default function Home() {
     acc[ach.date].push(ach);
     return acc;
   }, {} as Record<string, Achievement[]>);
+
+  // Sort groups by descending timestamp (newest day first)
+  const sortedDateKeys = Object.keys(groupedAchievements).sort((a, b) => {
+    // Get the first item in each group to determine the timestamp of the day
+    const timeA = groupedAchievements[a][0].timestamp;
+    const timeB = groupedAchievements[b][0].timestamp;
+    return timeB - timeA;
+  });
 
   const todayString = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric'
@@ -119,12 +194,27 @@ export default function Home() {
       <div className="max-w-2xl mx-auto px-4 py-12 sm:py-20 flex flex-col gap-10">
 
         {/* Header */}
-        <header className="flex flex-col gap-4 text-center sm:text-left animate-slide-up-1">
-          <div className="inline-flex items-center justify-center sm:justify-start gap-2 text-indigo-500 dark:text-indigo-400 font-semibold tracking-wider text-sm uppercase">
-            <Trophy className="w-5 h-5" />
-            <span>Achievement Tracker</span>
+        <header className="flex flex-col gap-4 text-center sm:text-left animate-slide-up-1 relative">
+
+          <div className="absolute top-0 right-0 p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer transition-colors" onClick={toggleTheme}>
+            {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </div>
-          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight">
+
+          <div className="inline-flex items-center justify-center sm:justify-start gap-3">
+            <div className="inline-flex items-center gap-2 text-indigo-500 dark:text-indigo-400 font-semibold tracking-wider text-sm uppercase">
+              <Trophy className="w-5 h-5" />
+              <span>Achievement Tracker</span>
+            </div>
+
+            {streakCount > 0 && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-orange-100 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 rounded-full text-xs font-bold leading-none ring-1 ring-inset ring-orange-200 dark:ring-orange-500/20">
+                <Flame className="w-3.5 h-3.5 fill-current" />
+                {streakCount} Day Streak
+              </div>
+            )}
+          </div>
+
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight mt-2">
             Today is <br className="sm:hidden" />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500">
               {todayString}
@@ -163,7 +253,7 @@ export default function Home() {
 
         {/* Achievements List */}
         <section className="mt-4 flex flex-col gap-8 animate-slide-up-3">
-          {Object.entries(groupedAchievements).length === 0 ? (
+          {sortedDateKeys.length === 0 ? (
             <div className="text-center py-20 bg-slate-100 dark:bg-slate-900/50 rounded-3xl border border-dashed border-slate-300 dark:border-slate-800">
               <div className="w-16 h-16 mx-auto bg-slate-200 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 text-slate-400 dark:text-slate-500">
                 <Trophy className="w-8 h-8" />
@@ -172,44 +262,55 @@ export default function Home() {
               <p className="text-slate-500 dark:text-slate-400 mt-2">Start your streak by adding your first win above.</p>
             </div>
           ) : (
-            Object.entries(groupedAchievements).map(([date, items]) => (
-              <div key={date} className="flex flex-col gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1"></div>
-                  <div className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/80 backdrop-blur-sm px-4 py-1.5 rounded-full ring-1 ring-inset ring-slate-200 dark:ring-slate-800">
-                    <CalendarDays className="w-4 h-4" />
-                    {date}
-                  </div>
-                  <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1"></div>
-                </div>
+            sortedDateKeys.map((date) => {
+              const items = groupedAchievements[date];
+              // Sort items within a day from newest to oldest
+              const sortedItems = [...items].sort((a, b) => b.timestamp - a.timestamp);
 
-                <div className="grid gap-3">
-                  {items.map((ach) => (
-                    <div
-                      key={ach.id}
-                      className="group flex items-start sm:items-center justify-between p-4 sm:p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all sm:hover:-translate-y-0.5"
-                    >
-                      <div className="flex items-start sm:items-center gap-4">
-                        <div className="mt-0.5 sm:mt-0 min-w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                          <CheckCircle2 className="w-5 h-5" />
-                        </div>
-                        <p className="text-lg font-medium text-slate-800 dark:text-slate-200 leading-snug">
-                          {ach.text}
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => handleDelete(ach.id)}
-                        className="ml-4 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 shrink-0 mt-1 sm:mt-0"
-                        aria-label="Delete achievement"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
+              return (
+                <div key={date} className="flex flex-col gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1"></div>
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/80 backdrop-blur-sm px-4 py-1.5 rounded-full ring-1 ring-inset ring-slate-200 dark:ring-slate-800">
+                      <CalendarDays className="w-4 h-4" />
+                      {date}
                     </div>
-                  ))}
+                    <div className="h-px bg-slate-200 dark:bg-slate-800 flex-1"></div>
+                  </div>
+
+                  <div className="grid gap-3">
+                    {sortedItems.map((ach) => (
+                      <div
+                        key={ach.id}
+                        className="group flex items-start sm:items-center justify-between p-4 sm:p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all sm:hover:-translate-y-0.5"
+                      >
+                        <div className="flex items-start sm:items-center gap-4">
+                          <div className="mt-0.5 sm:mt-0 min-w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                            <CheckCircle2 className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="text-lg font-medium text-slate-800 dark:text-slate-200 leading-snug">
+                              {ach.text}
+                            </p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                              {new Date(ach.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleDelete(ach.id)}
+                          className="ml-4 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 shrink-0 mt-1 sm:mt-0"
+                          aria-label="Delete achievement"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))
+              )
+            })
           )}
         </section>
 

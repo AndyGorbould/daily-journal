@@ -7,16 +7,16 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* We use a class approach for the dark theme toggle */
 :root {
   --background: #f8fafc;
-  --foreground: #020617; /* slate-950 */
+  --foreground: #020617;
+  /* slate-950 */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #020617;
-    --foreground: #f8fafc;
-  }
+.dark {
+  --background: #020617;
+  --foreground: #f8fafc;
 }
 
 body {
@@ -25,13 +25,25 @@ body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-fade-in {
